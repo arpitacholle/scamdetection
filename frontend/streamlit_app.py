@@ -1,17 +1,35 @@
 
-import streamlit as st
-import requests
 
+import os
+import sys
+
+# Find the main ScamDetection project folder
+BASE_DIR = os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))
+)
+
+# Add the project folder to Python's import path
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+import streamlit as st
+
+# Import backend AFTER adding the project folder to sys.path
+from backend.detector import analyze_text
+
+# Page configuration (only once)
 st.set_page_config(
-    page_title="TrustCheck AI",
+    page_title="ScamDetection",
     page_icon="🛡️",
     layout="centered"
 )
+
 
 # ---------------- TRANSLATIONS ----------------
 
 translations = {
     "English": {
+        "safe": "No common scam indicators detected.",
         "tagline": "Think before you trust.",
         "description": "Analyze suspicious SMS messages, emails and job offers.",
         "scan": "Scan a suspicious message",
@@ -27,11 +45,10 @@ translations = {
         "risk": "Risk Score",
         "level": "Risk Level",
         "warnings": "Warning Signs",
-        "safe": "No common scam indicators detected.",
         "theme": "Choose Theme",
         "language": "Choose Language",
         "empty": "Please enter a message first.",
-        "error": "Unable to connect to the backend."
+        "disclaimer": "This tool provides an indicative risk assessment, not a guarantee."
     },
 
     "Marathi": {
@@ -47,14 +64,13 @@ translations = {
         "placeholder": "तुमचा संशयास्पद संदेश येथे टाका...",
         "button": "संदेश तपासा",
         "result": "तपासणीचा निकाल",
-        "risk": "धोक्याची पातळी",
-        "level": "धोका",
+        "risk": "धोक्याचा स्कोअर",
+        "level": "धोक्याची पातळी",
         "warnings": "धोक्याची चिन्हे",
-        "safe": "सामान्य फसवणुकीची चिन्हे आढळली नाहीत.",
         "theme": "थीम निवडा",
         "language": "भाषा निवडा",
         "empty": "कृपया आधी संदेश लिहा.",
-        "error": "बॅकएंडशी कनेक्ट होता आले नाही."
+        "disclaimer": "हे साधन केवळ संभाव्य धोक्याचे मूल्यांकन देते."
     },
 
     "Hindi": {
@@ -73,14 +89,14 @@ translations = {
         "risk": "जोखिम स्कोर",
         "level": "जोखिम स्तर",
         "warnings": "चेतावनी के संकेत",
-        "safe": "धोखाधड़ी के सामान्य संकेत नहीं मिले।",
         "theme": "थीम चुनें",
         "language": "भाषा चुनें",
         "empty": "कृपया पहले संदेश लिखें।",
-        "error": "बैकएंड से कनेक्ट नहीं हो पाया।"
+        "disclaimer": "यह टूल केवल संभावित जोखिम का आकलन देता है।"
     }
 }
 
+# ---------------- RESULT TRANSLATIONS ----------------
 
 result_translations = {
     "Marathi": {
@@ -99,6 +115,7 @@ result_translations = {
         "No common scam indicators detected": "फसवणुकीची सामान्य चिन्हे आढळली नाहीत",
         "Suspicious words or phrases detected": "संशयास्पद शब्द आढळले"
     },
+
     "Hindi": {
         "Likely Scam": "संभावित धोखाधड़ी",
         "Suspicious": "संदिग्ध",
@@ -117,7 +134,8 @@ result_translations = {
     }
 }
 
-def translate_result(value):
+
+def translate_result(value, language):
     return result_translations.get(language, {}).get(value, value)
 
 
@@ -128,6 +146,7 @@ if "theme" not in st.session_state:
 
 if "language" not in st.session_state:
     st.session_state.language = "English"
+
 
 # ---------------- SIDEBAR ----------------
 
@@ -160,6 +179,7 @@ st.session_state.theme = theme
 
 t = translations[language]
 
+
 # ---------------- THEME COLORS ----------------
 
 if theme == "Dark":
@@ -174,6 +194,7 @@ else:
     text = "#2E1065"
     secondary = "#6B5B7B"
     input_bg = "#FFFFFF"
+
 
 # ---------------- CSS ----------------
 
@@ -206,14 +227,6 @@ h1, h2, h3, p, label {{
     color: {secondary};
 }}
 
-.scan-card {{
-    background: {card};
-    padding: 25px;
-    border-radius: 18px;
-    border: 1px solid #A78BFA;
-    margin-top: 20px;
-}}
-
 .stTextArea textarea {{
     background: {input_bg} !important;
     color: {text} !important;
@@ -235,15 +248,9 @@ h1, h2, h3, p, label {{
     color: white;
 }}
 
-.result-card {{
-    background: {card};
-    border: 1px solid #A78BFA;
-    border-radius: 15px;
-    padding: 20px;
-    margin-top: 20px;
-}}
 </style>
 """, unsafe_allow_html=True)
+
 
 # ---------------- MAIN HEADER ----------------
 
@@ -261,6 +268,7 @@ st.write("")
 st.write(t["description"])
 
 st.divider()
+
 
 # ---------------- SCAN SECTION ----------------
 
@@ -286,6 +294,7 @@ message = st.text_area(
     max_chars=10000
 )
 
+
 # ---------------- ANALYZE BUTTON ----------------
 
 if st.button("🔍 " + t["button"]):
@@ -294,71 +303,66 @@ if st.button("🔍 " + t["button"]):
         st.warning(t["empty"])
 
     else:
-        backend_url = "http://127.0.0.1:8000/scan"
-
         try:
-            response = requests.post(
-                backend_url,
-                json={
-                    "text": message,
-                    "category": category_options[selected_category]
-                },
-                timeout=30
+            # Directly call the detector.
+            # No separate FastAPI server is required.
+            data = analyze_text(
+                message,
+                category_options[selected_category]
             )
 
-            if response.status_code == 200:
+            st.divider()
+            st.subheader("📊 " + t["result"])
 
-                data = response.json()
+            # Verdict
+            verdict = data.get("verdict", "Unknown")
+            translated_verdict = translate_result(verdict, language)
 
-                st.divider()
-                st.subheader("📊 " + t["result"])
+            if verdict == "Likely Scam":
+                st.error("🚨 " + translated_verdict)
 
-                verdict = data["verdict"]
-
-                if verdict == "Likely Scam":
-                   st.error("🚨 " + translate_result(verdict))
-                elif verdict == "Suspicious":
-                    st.warning("⚠️ " + translate_result(verdict))
-                else:
-                   st.success("✅ " + translate_result(verdict))
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    st.metric(
-                        t["risk"],
-                        str(data["risk_score"]) + "/10"
-                    )
-
-                with col2:
-                    st.metric(
-                        t["level"],
-                        translate_result(data["risk_level"])
-                    )
-
-                st.subheader("⚠️ " + t["warnings"])
-
-                for warning in data["warning_signs"]:
-                 st.write("• " + translate_result(warning))
-                st.caption(
-                    "TrustCheck AI provides an indicative "
-                    "risk assessment, not a guarantee."
-                )
+            elif verdict == "Suspicious":
+                st.warning("⚠️ " + translated_verdict)
 
             else:
-                st.error(
-                    f"Backend Error: {response.status_code}"
+                st.success("✅ " + translated_verdict)
+
+            # Risk score and risk level
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.metric(
+                    t["risk"],
+                    str(data.get("risk_score", 0)) + "/10"
                 )
-                st.code(response.text)
 
-        except requests.exceptions.ConnectionError:
-            st.error(
-                t["error"] +
-                " Start the FastAPI backend first."
-            )
+            with col2:
+                risk_level = data.get("risk_level", "Unknown")
 
-        except requests.exceptions.RequestException as error:
-            st.error(f"Request Error: {error}")
+                st.metric(
+                    t["level"],
+                    translate_result(risk_level, language)
+                )
+
+            # Warning signs
+            st.subheader("⚠️ " + t["warnings"])
+
+            warning_signs = data.get("warning_signs", [])
+
+            if warning_signs:
+                for warning in warning_signs:
+                    st.write(
+                        "• " + translate_result(warning, language)
+                    )
+            else:
+                st.write(t["safe"] if "safe" in t else
+                         "No warning signs returned.")
+
+            st.caption(t["disclaimer"])
+
+        except Exception as error:
+            st.error("Analysis error: " + str(error))
+
 
 # ---------------- FOOTER ----------------
 
